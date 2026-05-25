@@ -1,8 +1,10 @@
 # playdate-transitions
 
-Drop-in scene transition library for [Playdate](https://play.date/). 15 effects, all direction-aware. Includes a demo app with procedural backgrounds.
+Drop-in scene transition library for [Playdate](https://play.date/). 21 effects, all direction-aware. Includes a demo app with procedural backgrounds.
 
 ## Transitions
+
+21 effects, all direction-aware (forward/backward):
 
 | Effect | |
 |---|---|
@@ -21,6 +23,12 @@ Drop-in scene transition library for [Playdate](https://play.date/). 15 effects,
 | Dither Bands | Cascading dithered crossfade |
 | Spiral | Archimedean spiral |
 | Wind | Turbulent pixel erosion |
+| Melt | Dripping melt with gravity |
+| Shatter | Falling broken pieces |
+| Scanline | CRT beam sweep |
+| Pixel Shift | VHS tracking glitch |
+| Hexagons | Honeycomb cell reveal |
+| Diagonal | Diagonal split / merge |
 
 ## Usage
 

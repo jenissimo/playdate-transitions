@@ -340,11 +340,151 @@ fx["Wind"] = function(t, p, c, d)
     end)
 end
 
+fx["Melt"] = function(t, p, c, d)
+    stencilDraw(p, c, function()
+        for col = 0, W - 1, 2 do
+            local speed = 0.6 + sin(col * 0.15 + col * col * 0.001) * 0.4
+            local delay = (1 - speed) * 0.3
+            local lt = max(0, (t - delay) / (1 - delay))
+            if lt > 0 then
+                local drop = easeIn(lt) * (H + 40)
+                local drip = sin(col * 0.3 + lt * 4) * 8 * lt
+                local fillH = floor(drop + drip)
+                if d == "fwd" then
+                    gfx.fillRect(col, 0, 2, min(H, fillH))
+                else
+                    gfx.fillRect(col, max(0, H - fillH), 2, H)
+                end
+            end
+        end
+    end)
+end
+
+fx["Shatter"] = function(t, p, c, d)
+    local et = easeIn(t)
+    stencilDraw(p, c, function()
+        gfx.fillRect(0, 0, W, H)
+    end)
+    if t < 0.95 then
+        local chunks = 18
+        for i = 0, chunks - 1 do
+            local cx = (i * 89 + 13) % W
+            local cy = (i * 53 + 7) % H
+            local cw2 = 40 + (i % 4) * 20
+            local ch2 = 30 + (i % 3) * 15
+            local delay = (i % 5) * 0.04
+            local lt = max(0, (t - delay) / (1 - delay))
+            if lt > 0 then
+                local gravity = lt * lt * 300
+                local rot = (i % 2 == 0 and 1 or -1) * lt * 30
+                local dx = (d == "fwd" and 1 or -1) * rot
+                local dy = gravity
+                local sx = cx - cw2 / 2 + dx
+                local sy = cy - ch2 / 2 + dy
+                gfx.setClipRect(floor(sx), floor(sy), cw2, ch2)
+                _prev:draw(floor(dx), floor(dy))
+                gfx.clearClipRect()
+            end
+        end
+    end
+end
+
+fx["Scanline"] = function(t, p, c, d)
+    local scanY = floor(t * (H + 16)) - 8
+    local scanDir = d == "fwd" and 1 or -1
+    local actualY = d == "fwd" and scanY or (H - scanY)
+    stencilDraw(p, c, function()
+        if d == "fwd" then
+            if actualY > 0 then gfx.fillRect(0, 0, W, min(H, actualY)) end
+        else
+            if actualY < H then gfx.fillRect(0, max(0, actualY), W, H) end
+        end
+    end)
+    gfx.setColor(gfx.kColorWhite)
+    local beamY = max(0, min(H - 3, actualY))
+    gfx.fillRect(0, beamY, W, 2)
+    gfx.setColor(gfx.kColorBlack)
+    for x = 0, W - 1, 4 do
+        local flicker = sin(x * 0.5 + t * 40) > 0.3 and 1 or 0
+        gfx.fillRect(x, beamY + flicker, 2, 1)
+    end
+end
+
+fx["Pixel Shift"] = function(t, p, c, d)
+    local et = easeIO(t)
+    local maxShift = W * 1.2
+    stencilDraw(p, c, function()
+        for y = 0, H - 1, 2 do
+            local dir2 = (y / 2) % 2 == 0 and 1 or -1
+            if d == "back" then dir2 = -dir2 end
+            local rowDelay = sin(y * 0.05) * 0.1
+            local lt = max(0, min(1, (t - rowDelay * 0.5) / (1 - rowDelay * 0.5)))
+            local shift = easeIO(lt) * maxShift * dir2
+            if dir2 > 0 then
+                local fillStart = max(0, floor(W - shift))
+                if fillStart < W then gfx.fillRect(fillStart, y, W, 2) end
+            else
+                local fillEnd = min(W, floor(-shift))
+                if fillEnd > 0 then gfx.fillRect(0, y, fillEnd, 2) end
+            end
+        end
+    end)
+end
+
+fx["Hexagons"] = function(t, p, c, d)
+    t = easeOut(t)
+    local hexR = 28
+    local hexW = hexR * 1.73
+    local hexH = hexR * 2
+    local cols = ceil(W / hexW) + 1
+    local rows = ceil(H / (hexH * 0.75)) + 1
+    stencilDraw(p, c, function()
+        for row = 0, rows - 1 do
+            for col = 0, cols - 1 do
+                local cx = col * hexW + (row % 2) * hexW * 0.5
+                local cy = row * hexH * 0.75
+                local dist = math.sqrt((cx - W / 2) ^ 2 + (cy - H / 2) ^ 2)
+                local maxDist = 250
+                local dl = d == "fwd" and dist / maxDist or (1 - dist / maxDist)
+                dl = max(0, min(1, dl))
+                local lt = max(0, min(1, (t - dl * 0.75) / 0.25))
+                if lt > 0 then
+                    local s = easeOut(lt) * hexR
+                    local pts = {}
+                    for k = 0, 5 do
+                        local a = pi / 3 * k + pi / 6
+                        pts[#pts + 1] = cx + cos(a) * s
+                        pts[#pts + 1] = cy + sin(a) * s
+                    end
+                    gfx.fillPolygon(unpack(pts))
+                end
+            end
+        end
+    end)
+end
+
+fx["Diagonal"] = function(t, p, c, d)
+    t = easeIO(t)
+    local threshold = t * (W + H)
+    stencilDraw(p, c, function()
+        for y = 0, H - 1, 2 do
+            if d == "fwd" then
+                local fw = floor(threshold - y)
+                if fw > 0 then gfx.fillRect(0, y, min(W, fw), 2) end
+            else
+                local sx = floor(W - (threshold - (H - 1 - y)))
+                if sx < W then gfx.fillRect(max(0, sx), y, W - max(0, sx), 2) end
+            end
+        end
+    end)
+end
+
 -- public API
 Transitions.names = {
     "Slide", "Fade", "Dissolve", "Circle", "Diamonds",
     "Diamond Wave", "Triangles", "Bubbles", "Blinds", "Clock Wipe",
     "Wave Wipe", "Interleave", "Dither Bands", "Spiral", "Wind",
+    "Melt", "Shatter", "Scanline", "Pixel Shift", "Hexagons", "Diagonal",
 }
 
 Transitions.descriptions = {
@@ -363,6 +503,12 @@ Transitions.descriptions = {
     ["Dither Bands"] = "Cascading dither bands",
     ["Spiral"] = "Archimedean spiral",
     ["Wind"] = "Turbulent pixel erosion",
+    ["Melt"] = "Dripping melt with gravity",
+    ["Shatter"] = "Falling broken pieces",
+    ["Scanline"] = "CRT beam sweep",
+    ["Pixel Shift"] = "VHS tracking glitch",
+    ["Hexagons"] = "Honeycomb cell reveal",
+    ["Diagonal"] = "Diagonal split / merge",
 }
 
 function Transitions.start(name, dir, frames)
