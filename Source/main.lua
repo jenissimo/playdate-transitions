@@ -1,5 +1,6 @@
 import "CoreLibs/graphics"
 import "transitions"
+import "sounds"
 import "backgrounds"
 
 local gfx <const> = playdate.graphics
@@ -18,18 +19,11 @@ local fontBold = gfx.font.new("fonts/Roobert-10-Bold")
 local fontTitle = gfx.font.new("fonts/Roobert-11-Medium")
 assert(fontBold)
 assert(fontTitle)
-local synthWhoosh = snd.synth.new(snd.kWaveNoise)
-synthWhoosh:setADSR(0.02, 0.25, 0.1, 0.3)
-synthWhoosh:setVolume(0.2)
-local synthSweep = snd.synth.new(snd.kWaveSawtooth)
-synthSweep:setADSR(0.01, 0.12, 0.05, 0.15)
-synthSweep:setVolume(0.1)
 local synthTick = snd.synth.new(snd.kWaveSquare)
 synthTick:setADSR(0.001, 0.03, 0, 0.01)
 synthTick:setVolume(0.15)
 
 local function sfxTick() synthTick:playNote(900, 1, 0.03) end
-local function sfxWhoosh() synthWhoosh:playNote(120, 1, 0.4); synthSweep:playNote(280, 0.8, 0.25) end
 local tick = 0
 local scene = "menu"
 local sel = 1
@@ -197,19 +191,16 @@ local function handleInput()
 
         if playdate.buttonJustPressed(playdate.kButtonA) then
             demoBgIdx = (demoBgIdx % Backgrounds.count) + 1
-            sfxWhoosh()
             Transitions.start(TRANS[sel], "fwd", floor(transSpeed))
             scene = "demo"
         end
     else
         if playdate.buttonJustPressed(playdate.kButtonB) then
-            sfxWhoosh()
             Transitions.start(TRANS[sel], "back", floor(transSpeed))
             scene = "menu"
         end
         if playdate.buttonJustPressed(playdate.kButtonA) then
             demoBgIdx = (demoBgIdx % Backgrounds.count) + 1
-            sfxWhoosh()
             Transitions.start(TRANS[sel], "fwd", floor(transSpeed))
         end
         if playdate.buttonJustPressed(playdate.kButtonLeft) then

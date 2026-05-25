@@ -518,6 +518,7 @@ function Transitions.start(name, dir, frames)
     _dir = dir or "fwd"
     _frame = 0
     _frames = frames or 24
+    if TransitionSounds then TransitionSounds.play(name, _dir) end
 end
 
 function Transitions.draw(drawFn)
