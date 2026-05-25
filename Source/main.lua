@@ -38,6 +38,8 @@ local scrollOff = 0
 local holdTimer = 0
 local transSpeed = 24
 local demoBgIdx = 1
+local autoPlay = false
+local autoPause = 0
 
 local TRANS = Transitions.names
 local PX, PY, PW, PH = 55, 14, 290, 199
@@ -218,6 +220,30 @@ local function handleInput()
         end
     end
 end
+local function autoStep()
+    if Transitions.active then return end
+    if autoPause > 0 then
+        autoPause -= 1
+        return
+    end
+    if scene == "menu" then
+        demoBgIdx = (demoBgIdx % Backgrounds.count) + 1
+        Transitions.start(TRANS[sel], "fwd", 20)
+        scene = "demo"
+        autoPause = 25
+    else
+        Transitions.start(TRANS[sel], "back", 20)
+        scene = "menu"
+        sel += 1
+        if sel > #TRANS then
+            sel = 1
+            autoPlay = false
+        end
+        selPunch = 1
+        autoPause = 15
+    end
+end
+
 function playdate.update()
     tick += 1
     Backgrounds.update()
@@ -227,11 +253,21 @@ function playdate.update()
         transSpeed = max(8, min(60, transSpeed + cc * 0.12))
     end
 
-    if not Transitions.active then handleInput() end
+    if autoPlay then
+        autoStep()
+    elseif not Transitions.active then
+        handleInput()
+    end
 
     Transitions.draw(drawScene)
 
     playdate.drawFPS(2, 2)
 end
+
 local sysMenu = playdate.getSystemMenu()
 sysMenu:addMenuItem("Reset Speed", function() transSpeed = 24 end)
+sysMenu:addMenuItem("Auto Showcase", function()
+    autoPlay = true
+    autoPause = 10
+    scene = "menu"
+end)
