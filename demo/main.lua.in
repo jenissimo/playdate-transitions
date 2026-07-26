@@ -1,5 +1,6 @@
 import "CoreLibs/graphics"
 import "transitions"
+import "sfxkit"          -- before "sounds": that module is written on top of it
 import "sounds"
 import "backgrounds"
 
@@ -19,11 +20,14 @@ local fontBold = gfx.font.new("fonts/Roobert-10-Bold")
 local fontTitle = gfx.font.new("fonts/Roobert-11-Medium")
 assert(fontBold)
 assert(fontTitle)
-local synthTick = snd.synth.new(snd.kWaveSquare)
-synthTick:setADSR(0.001, 0.03, 0, 0.01)
-synthTick:setVolume(0.15)
+-- All sound allocation happens in one place, before the first update: the menu
+-- tick is just another recipe rather than a synth this file owns.
+TransitionSounds.load()
+SfxKit.define("tick", { prio = 3, notes = {
+    { group = "sq", hz = 900, vol = 0.15, len = 0.03, adsr = { 0.001, 0.03, 0, 0.01 } },
+} })
 
-local function sfxTick() synthTick:playNote(900, 1, 0.03) end
+local function sfxTick() SfxKit.emit("tick") end
 local tick = 0
 local scene = "menu"
 local sel = 1
@@ -236,6 +240,7 @@ local function autoStep()
 end
 
 function playdate.update()
+    SfxKit.frame()          -- must be first: resets this frame's emit budget
     tick += 1
     Backgrounds.update()
 

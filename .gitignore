@@ -1,9 +1,7 @@
 *.pdx/
-# tools/build_demo.py copies the root modules and images/ into demo/Source to
-# compile, then removes them; ignored so an interrupted build cannot commit a
-# stale duplicate of a module.
+# tools/build_demo.py stages the root modules and the demo .lua.in sources into
+# demo/Source to compile, then removes them. Ignored so an interrupted build
+# cannot commit a stale duplicate.
 demo/Source/*.lua
-!demo/Source/main.lua
-!demo/Source/sounds.lua
 demo/Source/images/
 .sentry-native/

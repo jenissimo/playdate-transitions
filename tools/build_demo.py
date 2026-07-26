@@ -6,6 +6,12 @@ as a submodule straight inside their Source/ and `import "juice/sfxkit"`. pdc,
 though, only compiles what is under the source folder it is given -- and
 `import "../sfxkit"` does not resolve outside it. So the demo build copies the
 modules in, compiles, and cleans up. The copies are gitignored.
+
+The demo's OWN sources are kept as .lua.in for the same reason in reverse: pdc
+compiles every .lua in the tree it is pointed at, so a consumer who submodules
+this repo into their Source/ would otherwise have the demo's main.lua compiled
+as part of THEIR game -- and it would fail, because the modules it imports are
+only copied in at demo-build time.
 """
 import os
 import shutil
@@ -51,6 +57,13 @@ def main():
             dst = os.path.join(DEMO, m)
             shutil.copy2(src, dst)
             copied.append(dst)
+
+        demo_root = os.path.join(ROOT, "demo")
+        for f in sorted(os.listdir(demo_root)):
+            if f.endswith(".lua.in"):
+                dst = os.path.join(DEMO, f[:-3])      # strip the ".in"
+                shutil.copy2(os.path.join(demo_root, f), dst)
+                copied.append(dst)
 
         # The paw effect loads images/ from the pdx root by the same relative
         # path the library uses, so the folder has to come along too.

@@ -1,0 +1,182 @@
+-- Per-transition sound effects, written as sfxkit recipes.
+--
+-- This file is the demo's dogfood: the same 21 sounds the demo always had, but
+-- as data rather than as 21 hand-written functions each poking five
+-- module-scope synths. What that buys, concretely:
+--
+--   * the synths are allocated by SfxKit.load, not at import time;
+--   * two sounds triggered in one frame cannot delete each other's notes,
+--     because the allocator hands out voices instead of everyone sharing `n1`;
+--   * the whole palette can be validated in a host test.
+--
+-- Built by tools/build_demo.py into demo/Source/sounds.lua.
+TransitionSounds = {}
+TransitionSounds.enabled = true
+
+local SfxKit = rawget(_G, "SfxKit") or require("sfxkit")
+
+TransitionSounds.SPEC = {
+    buses = { fx = { volume = 1.0 } },
+    groups = {
+        -- Two noise voices because nearly every sound here is a noise pair;
+        -- one each of the pitched waves, which no recipe uses twice.
+        noise = { wave = "noise",    count = 2, bus = "fx" },
+        sq    = { wave = "square",   count = 1, bus = "fx" },
+        si    = { wave = "sine",     count = 1, bus = "fx" },
+        tr    = { wave = "triangle", count = 1, bus = "fx" },
+    },
+    budget = { synth = 2, sample = 1 },
+}
+
+-- { group, attack, decay, sustain, release, volume, hz forward, hz back, length }
+--
+-- The volumes are the original's setVolume x velocity folded into one number:
+-- a recipe note carries its own amplitude, so there is no per-synth gain left
+-- to drift out of sync with it.
+local FX = {
+    ["Slide"] = {
+        { "noise", 0.02,  0.20, 0.08, 0.25, 0.180,  350,  250, 0.38 },
+        { "noise", 0.01,  0.12, 0.04, 0.18, 0.056,  700,  500, 0.28 },
+        { "tr",    0.03,  0.15, 0.03, 0.20, 0.009,  500,  380, 0.30 },
+    },
+    ["Fade"] = {
+        { "noise", 0.15,  0.30, 0.15, 0.40, 0.084,  280,  340, 0.60 },
+        { "si",    0.15,  0.25, 0.10, 0.35, 0.008,  440,  520, 0.55 },
+    },
+    ["Dissolve"] = {
+        { "noise", 0.06,  0.25, 0.12, 0.30, 0.085,  400,  300, 0.50 },
+        { "noise", 0.08,  0.20, 0.08, 0.25, 0.024,  800,  600, 0.40 },
+    },
+    ["Circle"] = {
+        { "noise", 0.01,  0.15, 0.20, 0.30, 0.128,  450,  320, 0.40 },
+        { "noise", 0.02,  0.10, 0.10, 0.20, 0.030,  900,  640, 0.35 },
+        { "si",    0.02,  0.10, 0.12, 0.25, 0.008,  600,  800, 0.35 },
+    },
+    ["Diamonds"] = {
+        { "noise", 0.008, 0.10, 0.04, 0.15, 0.112,  600,  450, 0.22 },
+        { "noise", 0.003, 0.06, 0.02, 0.10, 0.048, 1200,  900, 0.15 },
+        { "tr",    0.005, 0.08, 0.02, 0.12, 0.009, 1100,  850, 0.20 },
+    },
+    ["Diamond Wave"] = {
+        { "noise", 0.01,  0.18, 0.08, 0.22, 0.105,  500,  380, 0.38 },
+        { "noise", 0.015, 0.12, 0.05, 0.18, 0.030, 1000,  750, 0.30 },
+        { "tr",    0.02,  0.10, 0.04, 0.15, 0.006,  880,  660, 0.28 },
+    },
+    ["Triangles"] = {
+        { "noise", 0.003, 0.06, 0.01, 0.08, 0.144,  550,  420, 0.12 },
+        { "noise", 0.001, 0.03, 0.00, 0.05, 0.070, 1100,  850, 0.06 },
+        { "tr",    0.003, 0.04, 0.01, 0.06, 0.006,  950,  750, 0.10 },
+    },
+    ["Bubbles"] = {
+        { "noise", 0.02,  0.15, 0.12, 0.20, 0.098,  420,  300, 0.40 },
+        { "noise", 0.01,  0.08, 0.06, 0.15, 0.035,  850,  600, 0.30 },
+        { "si",    0.01,  0.06, 0.08, 0.15, 0.008,  800,  550, 0.30 },
+    },
+    ["Blinds"] = {
+        { "noise", 0.005, 0.07, 0.02, 0.10, 0.136,  480,  360, 0.15 },
+        { "noise", 0.002, 0.04, 0.01, 0.06, 0.054,  950,  720, 0.08 },
+    },
+    ["Clock Wipe"] = {
+        { "noise", 0.015, 0.20, 0.15, 0.20, 0.091,  380,  280, 0.50 },
+        { "noise", 0.02,  0.15, 0.08, 0.15, 0.023,  750,  560, 0.40 },
+        { "tr",    0.01,  0.10, 0.06, 0.12, 0.005,  520,  420, 0.40 },
+    },
+    ["Wave Wipe"] = {
+        { "noise", 0.03,  0.22, 0.12, 0.25, 0.136,  320,  230, 0.50 },
+        { "noise", 0.04,  0.18, 0.08, 0.20, 0.035,  640,  460, 0.40 },
+        { "tr",    0.05,  0.15, 0.06, 0.20, 0.005,  480,  360, 0.38 },
+    },
+    ["Interleave"] = {
+        { "noise", 0.005, 0.08, 0.04, 0.12, 0.120,  520,  400, 0.20 },
+        { "noise", 0.002, 0.04, 0.02, 0.08, 0.044, 1050,  800, 0.12 },
+    },
+    ["Dither Bands"] = {
+        { "noise", 0.01,  0.15, 0.10, 0.20, 0.105,  430,  330, 0.35 },
+        { "noise", 0.005, 0.08, 0.04, 0.12, 0.035,  860,  660, 0.20 },
+        { "sq",    0.002, 0.03, 0.01, 0.05, 0.006,  700,  560, 0.08 },
+    },
+    ["Spiral"] = {
+        { "noise", 0.02,  0.22, 0.12, 0.25, 0.113,  440,  330, 0.50 },
+        { "noise", 0.015, 0.15, 0.06, 0.20, 0.027,  880,  660, 0.40 },
+        { "tr",    0.025, 0.12, 0.05, 0.18, 0.006,  650,  480, 0.45 },
+    },
+    ["Wind"] = {
+        { "noise", 0.04,  0.25, 0.15, 0.30, 0.200,  350,  250, 0.50 },
+        { "noise", 0.02,  0.15, 0.08, 0.20, 0.048,  700,  500, 0.40 },
+    },
+    ["Melt"] = {
+        { "noise", 0.01,  0.25, 0.12, 0.30, 0.105,  300,  480, 0.50 },
+        { "noise", 0.03,  0.18, 0.08, 0.22, 0.027,  600,  960, 0.40 },
+        { "si",    0.02,  0.15, 0.06, 0.25, 0.005,  450,  700, 0.45 },
+    },
+    ["Shatter"] = {
+        { "noise", 0.003, 0.10, 0.04, 0.20, 0.220,  500,  380, 0.22 },
+        { "noise", 0.001, 0.04, 0.02, 0.10, 0.096, 1200,  900, 0.10 },
+        { "sq",    0.001, 0.01, 0.00, 0.03, 0.012, 1400, 1100, 0.03 },
+    },
+    ["Scanline"] = {
+        { "noise", 0.008, 0.18, 0.10, 0.15, 0.078,  800,  600, 0.35 },
+        { "noise", 0.005, 0.10, 0.06, 0.10, 0.024, 1600, 1200, 0.25 },
+        { "sq",    0.006, 0.12, 0.05, 0.08, 0.004, 1800, 1400, 0.20 },
+    },
+    ["Pixel Shift"] = {
+        { "noise", 0.002, 0.07, 0.03,  0.12, 0.128, 450,  340, 0.20 },
+        { "noise", 0.001, 0.04, 0.015, 0.08, 0.054, 900,  680, 0.10 },
+    },
+    ["Hexagons"] = {
+        { "noise", 0.005, 0.09, 0.03, 0.12, 0.112,  530,  400, 0.18 },
+        { "noise", 0.008, 0.06, 0.02, 0.10, 0.035, 1060,  800, 0.15 },
+        { "tr",    0.005, 0.06, 0.02, 0.08, 0.006,  820,  650, 0.15 },
+    },
+    ["Diagonal"] = {
+        { "noise", 0.01,  0.12, 0.05, 0.18, 0.136,  400,  290, 0.28 },
+        { "noise", 0.005, 0.07, 0.03, 0.12, 0.044,  800,  580, 0.20 },
+        { "tr",    0.01,  0.06, 0.02, 0.10, 0.006,  600,  440, 0.22 },
+    },
+    -- The two effects the library gained from Nyandoku. A paw is a soft pad
+    -- thump; a blink is the short breath of an eyelid closing.
+    ["Paw Walk"] = {
+        { "noise", 0.004, 0.05, 0.02, 0.06, 0.090,  240,  200, 0.10 },
+        { "tr",    0.002, 0.06, 0.00, 0.05, 0.030,  160,  140, 0.08 },
+    },
+    ["Blink"] = {
+        { "noise", 0.010, 0.14, 0.06, 0.16, 0.110,  300,  360, 0.30 },
+        { "si",    0.020, 0.12, 0.05, 0.18, 0.020,  220,  280, 0.28 },
+    },
+}
+
+TransitionSounds.FX = FX
+
+-- One function recipe per effect, closing over its row. Direction only ever
+-- changes the pitches, which is why the whole table is two Hz columns rather
+-- than two tables.
+local function recipe_for(rows)
+    return function(dir)
+        local fwd = (dir ~= "back")
+        local notes = {}
+        for i, r in ipairs(rows) do
+            notes[i] = {
+                group = r[1],
+                adsr  = { r[2], r[3], r[4], r[5] },
+                vol   = r[6],
+                hz    = fwd and r[7] or r[8],
+                len   = r[9],
+            }
+        end
+        return { prio = 1, notes = notes }
+    end
+end
+
+function TransitionSounds.load()
+    SfxKit.load(TransitionSounds.SPEC)
+    for name, rows in pairs(FX) do
+        SfxKit.define("t:" .. name, recipe_for(rows))
+    end
+end
+
+function TransitionSounds.play(name, dir)
+    if not TransitionSounds.enabled then return false end
+    return SfxKit.emit("t:" .. name, dir or "fwd")
+end
+
+return TransitionSounds
