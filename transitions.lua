@@ -2,8 +2,8 @@
 --
 -- Scene-change wipes for Playdate. 23 effects, all direction-aware, all driven
 -- by the same two calls: start one when you swap scenes, wrap your per-frame
--- draw. The wipe composites a snapshot of the OUTGOING screen over the incoming
--- scene, which keeps the consumer's scene code completely unaware of it.
+-- draw. The driver captures the OUTGOING and INCOMING screens once, then the
+-- wipe composites those two snapshots without rerunning scene code.
 --
 -- Two things about this module are not obvious and are the reason it looks the
 -- way it does:
@@ -15,15 +15,22 @@
 --    and `require("transitions")` under host lua -- with no `playdate` global at
 --    all -- succeeds, which is what makes the pure half testable.
 --
--- 2. A TRANSITION IS EXPENSIVE, SO SOME SCENE HOPS MUST STAY BARE. Every frame
---    of a transition costs a full offscreen render of the incoming scene plus
---    two full-screen blits. A scene that already spends its frame budget on real
---    work -- a coroutine level generator is the case this was learned on --
---    cannot also carry that; overrunning the frame there trips the watchdog and
---    reboots the console. Bare hops also matter for taste: a wipe on a hop that
---    repeats every 60 seconds of play stops reading as punctuation and starts
---    reading as lag, and a hop whose destination already plays its own entry
---    animation does not want a second one in front of it.
+-- 2. THE RENDER IS SNAPSHOTTED, NOT THE SCENE. Transitions.draw takes either
+--    one combined function (legacy) or an (updateFn, drawFn) pair (see the
+--    doc comment on Transitions.draw itself). Either way, only the DRAW half
+--    is ever frozen: it runs once into the reusable buffer on the frame a
+--    transition starts, and every later frame of the wipe only composites
+--    that still bitmap and re-runs the effect math -- the offscreen render
+--    plus two full-screen blits is the expensive part, and re-paying it every
+--    frame for no visible benefit is what FREEZES_INCOMING exists to avoid.
+--    updateFn (when the caller has split it out) runs on every frame of the
+--    wipe, transition or not, so a destination scene's timers/tweens/toasts
+--    keep ticking and it can keep reading input instead of visibly hanging
+--    for the transition's whole duration. Bare hops still matter for taste: a
+--    wipe on a hop that repeats every 60 seconds of play stops reading as
+--    punctuation and starts reading as lag, and a hop whose destination
+--    already plays its own entry animation does not want a second one in
+--    front of it.
 --
 --    That is what setPlan(plan, bare) is for. The plan maps "from>to" to an
 --    effect; the bare table records, in prose, WHY a hop deliberately has none.
@@ -42,6 +49,13 @@
 -- Ported and merged from github.com/jenissimo/playdate-transitions (MIT); the
 -- Paw Walk and Blink effects come from Nyandoku, which shipped this driver.
 Transitions = Transitions or {}
+Transitions.FREEZES_INCOMING = true
+-- True as of this release: Transitions.draw/wrap accepts an (updateFn, drawFn)
+-- pair, and updateFn runs every frame of an active wipe (drawFn stays frozen
+-- to one capture -- see FREEZES_INCOMING and the doc comment on Transitions.draw).
+-- A consumer can check this at runtime to know the split form is available
+-- rather than guessing from a version number.
+Transitions.SPLITS_UPDATE_FROM_DRAW = true
 
 local pd <const> = rawget(_G, "playdate")
 local gfx <const> = pd and pd.graphics
@@ -225,6 +239,7 @@ local function clamp01(v) return v < 0 and 0 or (v > 1 and 1 or v) end
 
 local buf, stencil, prev
 local name, dir, frame, frames
+local incoming_captured = false
 
 -- Where the paw artwork lives, WITHOUT the .png -- that is how the Playdate
 -- image loader wants it, and it is also what lets pdc's .pdi swap in. A
@@ -899,6 +914,7 @@ function Transitions.start(effect, direction, duration)
     dir = Transitions.normalizeDir(direction)
     frame = 0
     frames = duration or 24
+    incoming_captured = false
     Transitions.active = true
     -- Optional companion module from the demo app; looked up at call time so
     -- this file never depends on import order.
@@ -915,23 +931,70 @@ function Transitions.play(hop)
     Transitions.start(e, d, n)
 end
 
--- Wrap your per-frame scene draw. While a transition runs the incoming scene
--- still draws -- into an offscreen buffer -- so it animates in behind the wipe.
--- Gate your input handling on Transitions.active, or the outgoing scene keeps
--- reading the d-pad.
-function Transitions.draw(drawFn)
+-- Wrap your per-frame scene step. Two call shapes:
+--
+--   Transitions.draw(fn)               -- legacy: one combined update+draw
+--   Transitions.draw(updateFn, drawFn) -- split: logic separate from render
+--
+-- LEGACY (one function): unchanged from every prior release. `fn` runs once,
+-- on the frame the incoming capture happens, and is frozen -- never called
+-- again -- for the rest of the wipe. A host project that has not split its
+-- scenes keeps working exactly as before with no code changes.
+--
+-- SPLIT (two functions): `updateFn` runs on EVERY frame of the wipe, active
+-- or not, so the destination scene's timers/tweens/toasts keep advancing and
+-- it can keep reading input -- gated however the host wants (see Nyandoku's
+-- main.lua for why that gate now guards the INCOMING scene rather than the
+-- outgoing one, which cannot run again regardless once a scene swap has
+-- happened). `drawFn` is still captured only ONCE per transition, on the
+-- frame it starts: the offscreen render plus two full-screen blits is the
+-- expensive half, not the logic, so freezing draw alone keeps the frame-
+-- budget win FREEZES_INCOMING exists for while giving back real
+-- responsiveness. Both functions run in the same relative order every frame
+-- (updateFn then drawFn), matching a normal non-transition frame, so a scene
+-- that reads input at the end of its own update() still sees it applied
+-- AFTER this frame's draw was captured -- exactly as it would outside a
+-- transition.
+function Transitions.draw(updateFn, drawFn)
+    if not drawFn then
+        -- ---- legacy single-function path; byte-for-byte the old behaviour ----
+        if Transitions.active and frame >= frames then
+            Transitions.active = false
+            prev = nil                             -- drop the snapshot promptly
+        end
+        if not Transitions.active or not Transitions._ready then
+            updateFn()
+            return
+        end
+        if not incoming_captured then
+            gfx.pushContext(buf)
+            updateFn()
+            gfx.popContext()
+            incoming_captured = true
+        end
+        gfx.setColor(gfx.kColorBlack)
+        fx[name](Transitions.progress(frame, frames), prev, buf, dir)
+        frame = frame + 1
+        return
+    end
+
+    -- ---- split path: updateFn every frame, drawFn captured once ----
     if Transitions.active and frame >= frames then
         Transitions.active = false
         prev = nil                                 -- drop the snapshot promptly
     end
+    updateFn()
     if not Transitions.active or not Transitions._ready then
         drawFn()
         return
     end
 
-    gfx.pushContext(buf)
-    drawFn()
-    gfx.popContext()
+    if not incoming_captured then
+        gfx.pushContext(buf)
+        drawFn()
+        gfx.popContext()
+        incoming_captured = true
+    end
 
     gfx.setColor(gfx.kColorBlack)
     fx[name](Transitions.progress(frame, frames), prev, buf, dir)

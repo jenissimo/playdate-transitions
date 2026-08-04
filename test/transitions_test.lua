@@ -172,5 +172,105 @@ T.setFrames(12)
 A.eq(T.getFrames(), 12, "setFrames takes")
 T.setFrames(24)
 
+-- ---- device section: frozen incoming capture -------------------------------
+-- FREEZES_INCOMING is the driver's whole cost model: the destination scene's
+-- draw runs into the offscreen buffer exactly once, on the frame the wipe
+-- starts, and every later frame of the wipe only composites that still
+-- bitmap -- rerunning the destination scene for every frame would steal frame
+-- budget for no visible benefit. A fake graphics table stands in for the SDK
+-- the same way the parity test above does; every method Transitions.draw
+-- touches while active has to exist, even as a no-op.
+package.loaded["transitions"] = nil
+_G.Transitions = nil
+local image = {
+    draw = function() end,
+    drawScaled = function() end,
+    getSize = function() return 16, 16 end,
+    rotatedImage = function(self) return self end,
+}
+local fake_gfx = {
+    kColorBlack = 0,
+    kColorWhite = 1,
+    kDrawModeCopy = 0,
+    kDrawModeFillWhite = 1,
+    image = { new = function() return image end },
+    getDisplayImage = function() return image end,
+    pushContext = function() end,
+    popContext = function() end,
+    clear = function() end,
+    setColor = function() end,
+    fillRect = function() end,
+    setStencilImage = function() end,
+    clearStencil = function() end,
+    setImageDrawMode = function() end,
+}
+_G.playdate = { graphics = fake_gfx }
+local DeviceT = require("transitions")
+A.eq(DeviceT.FREEZES_INCOMING, true, "the driver declares it freezes the incoming snapshot")
+
+local draws = 0
+DeviceT.start("blink", "fwd", 4)
+for _ = 1, 4 do
+    DeviceT.draw(function() draws = draws + 1 end)
+end
+A.eq(draws, 1, "the wrapped scene draw runs exactly once across a whole transition")
+DeviceT.draw(function() draws = draws + 1 end)
+A.eq(draws, 2, "the scene draw resumes on the frame after the transition completes")
+A.eq(DeviceT.active, false, "the transition has released its snapshot by then")
+
+-- ---- device section: split update()/draw() contract ------------------------
+-- Transitions.draw/wrap(updateFn, drawFn) is the contract that fixes
+-- FREEZES_INCOMING's other half: a destination scene that reads input and
+-- ticks timers inside updateFn must not go dead for the whole wipe just
+-- because its draw is (rightly) only captured once.
+A.eq(Transitions.SPLITS_UPDATE_FROM_DRAW, true,
+    "the driver declares updateFn runs every frame of a split-form wipe")
+
+local updates, splitDraws = 0, 0
+DeviceT.start("blink", "fwd", 4)
+for _ = 1, 4 do
+    DeviceT.draw(function() updates = updates + 1 end, function() splitDraws = splitDraws + 1 end)
+end
+A.eq(updates, 4, "updateFn runs on every single frame of a 4-frame transition")
+A.eq(splitDraws, 1, "drawFn is still captured exactly once across the whole transition")
+DeviceT.draw(function() updates = updates + 1 end, function() splitDraws = splitDraws + 1 end)
+A.eq(updates, 5, "updateFn keeps running on the frame the transition completes on")
+A.eq(splitDraws, 2, "drawFn resumes normally once the transition is over")
+A.eq(DeviceT.active, false, "the transition has released its snapshot by then")
+
+-- Outside any transition, both halves run every frame -- same as an ordinary
+-- combined call would have.
+local idleUpdates, idleDraws = 0, 0
+for _ = 1, 3 do
+    DeviceT.draw(function() idleUpdates = idleUpdates + 1 end, function() idleDraws = idleDraws + 1 end)
+end
+A.eq(idleUpdates, 3, "outside a transition updateFn runs every frame")
+A.eq(idleDraws, 3, "outside a transition drawFn runs every frame too")
+
+-- Legacy callers are unaffected: passing only one function is still the
+-- byte-for-byte original freeze-everything behaviour, not the split one.
+local legacyCalls = 0
+DeviceT.start("blink", "fwd", 4)
+for _ = 1, 4 do
+    DeviceT.draw(function() legacyCalls = legacyCalls + 1 end)
+end
+A.eq(legacyCalls, 1, "a single combined function is still called exactly once across a transition")
+DeviceT.draw(function() legacyCalls = legacyCalls + 1 end)
+A.eq(legacyCalls, 2, "...and resumes normally once the transition ends")
+
+-- Headless safety extends to the split form too: no SDK, no crash, and both
+-- halves still run since there is nothing to freeze without a device.
+package.loaded["transitions"] = nil
+_G.Transitions = nil
+_G.playdate = nil
+local HeadlessT = require("transitions")
+local ranUpdate, ranDraw = false, false
+HeadlessT.draw(function() ranUpdate = true end, function() ranDraw = true end)
+A.truthy(ranUpdate, "headless split draw calls updateFn when inert")
+A.truthy(ranDraw, "headless split draw calls drawFn when inert")
+
+package.loaded["transitions"] = nil
+_G.Transitions = nil
+
 _G.playdate = saved_playdate
 return true
